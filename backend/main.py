@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from typing import Optional
+from pathlib import Path
 
 from backend.ingestion import DataIngestionLayer
 from backend.simulator import CounterfactualSimulator
+from backend.ai_advisor import TacticalAIAdvisor
 
 app = FastAPI(
     title="Simulador Contrafactual NFL",
@@ -11,14 +13,15 @@ app = FastAPI(
     description="Backend API de Simulación de decisiones tácticas NFL para entrenadores"
 )
 
-# Inicializar capa de ingesta y simulador en memoria
+# Inicializar capa de ingesta, simulador y asesor de IA en memoria
 ingestion = DataIngestionLayer(data_path="data/nfl_sample.csv")
 try:
     df_plays = ingestion.load_and_normalize()
-except Exception as e:
+except Exception:
     df_plays = None
 
 simulator = CounterfactualSimulator()
+ai_advisor = TacticalAIAdvisor()
 
 # Modelos Pydantic de solicitud
 class OffensiveSimRequest(BaseModel):
@@ -56,6 +59,9 @@ def simulate_offensive(req: OffensiveSimRequest):
     result = simulator.simulate_offensive_scenario(
         play_row, req.sim_play_type, req.sim_target_gap, req.aggressiveness or 1.0
     )
+    
+    # Enriquecer respuesta con diagnóstico de IA (Bedrock / Fallback)
+    result["ai_summary"] = ai_advisor.generate_tactical_summary(play_row.to_dict(), result)
     return result
 
 @app.post("/api/simulate/defensive")
@@ -71,6 +77,9 @@ def simulate_defensive(req: DefensiveSimRequest):
     result = simulator.simulate_defensive_scenario(
         play_row, req.sim_coverage, req.sim_blitz_count
     )
+    
+    # Enriquecer respuesta con diagnóstico de IA (Bedrock / Fallback)
+    result["ai_summary"] = ai_advisor.generate_tactical_summary(play_row.to_dict(), result)
     return result
 
 @app.get("/api/game-summary")

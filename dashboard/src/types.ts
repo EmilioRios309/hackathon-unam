@@ -38,6 +38,7 @@ export interface OffensiveSimResult {
     delta_success_prob: number;
   };
   tactical_narrative: string;
+  ai_summary?: string;
 }
 
 export interface DefensiveSimResult {
@@ -58,4 +59,5 @@ export interface DefensiveSimResult {
     epa_prevented: number;
   };
   tactical_narrative: string;
+  ai_summary?: string;
 }
