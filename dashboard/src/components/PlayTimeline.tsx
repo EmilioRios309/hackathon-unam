@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Play } from '../types';
 
 interface PlayTimelineProps {
@@ -12,6 +12,9 @@ export const PlayTimeline: React.FC<PlayTimelineProps> = ({
   selectedPlay,
   onSelectPlay,
 }) => {
+  const [quarterFilter, setQuarterFilter] = useState<number | 'ALL'>('ALL');
+  const [keyOnlyFilter, setKeyOnlyFilter] = useState<boolean>(false);
+
   if (!plays || plays.length === 0) {
     return (
       <div className="bg-gray-900 border border-gray-800 p-4 rounded-xl text-center text-gray-400 text-sm">
@@ -20,24 +23,72 @@ export const PlayTimeline: React.FC<PlayTimelineProps> = ({
     );
   }
 
+  // Filtrado dinámico de jugadas
+  const filteredPlays = plays.filter((play) => {
+    const matchesQuarter = quarterFilter === 'ALL' || play.quarter === quarterFilter;
+    const isKeyMoment = play.down >= 3 || Math.abs(play.actual_epa) >= 1.0;
+    const matchesKey = !keyOnlyFilter || isKeyMoment;
+    return matchesQuarter && matchesKey;
+  });
+
   return (
     <section className="bg-gray-900 border border-gray-800 p-5 rounded-2xl shadow-xl mb-6">
-      <div className="flex items-center justify-between mb-4">
+      {/* Encabezado y Filtros */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-blue-500">🏈</span> Catálogo de Jugadas Clave
           </h2>
           <p className="text-xs text-gray-400">
-            Selecciona un momento táctico del partido para iniciar la simulación contrafactual
+            Filtra por cuarto o momentos críticos para simular escenarios "What-If"
           </p>
         </div>
-        <span className="text-xs font-semibold bg-gray-800 text-gray-300 px-3 py-1 rounded-full border border-gray-700">
-          {plays.length} Jugadas Disponibles
-        </span>
+
+        {/* Botones de Filtro */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Filtro por Cuarto */}
+          <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700/80 text-xs">
+            {(['ALL', 1, 2, 3, 4] as const).map((q) => (
+              <button
+                key={q}
+                onClick={() => setQuarterFilter(q)}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
+                  quarterFilter === q
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {q === 'ALL' ? 'Todos' : `Q${q}`}
+              </button>
+            ))}
+          </div>
+
+          {/* Toggle Momentos Clave */}
+          <button
+            onClick={() => setKeyOnlyFilter(!keyOnlyFilter)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 ${
+              keyOnlyFilter
+                ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-lg shadow-amber-500/10'
+                : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
+            }`}
+          >
+            <span>⭐</span>
+            <span>Solo Claves (3er/4to Down)</span>
+          </button>
+        </div>
       </div>
 
+      {/* Contador de Jugadas Filtradas */}
+      <div className="text-[11px] text-gray-400 mb-2 flex justify-between items-center px-1">
+        <span>Mostrando <strong>{filteredPlays.length}</strong> de {plays.length} jugadas</span>
+        {filteredPlays.length === 0 && (
+          <span className="text-amber-400">No hay jugadas que coincidan con el filtro seleccionado.</span>
+        )}
+      </div>
+
+      {/* Carrusel / Lista de Jugadas */}
       <div className="flex gap-3 overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
-        {plays.map((play) => {
+        {filteredPlays.map((play) => {
           const isSelected = selectedPlay?.play_id === play.play_id;
           const isKeyMoment = play.down >= 3 || Math.abs(play.actual_epa) >= 1.0;
 
