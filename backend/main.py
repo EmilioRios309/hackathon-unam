@@ -1,95 +1,119 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from typing import Optional
+import os
 from pathlib import Path
 
-from backend.ingestion import DataIngestionLayer
-from backend.simulator import CounterfactualSimulator
-from backend.ai_advisor import TacticalAIAdvisor
 
-app = FastAPI(
-    title="Simulador Contrafactual NFL",
-    version="1.0.0",
-    description="Backend API de Simulación de decisiones tácticas NFL para entrenadores"
-)
+def cargar_env():
+    f = Path(__file__).resolve().parent.parent / ".env"
+    if f.exists():
+        for linea in f.read_text(encoding="utf-8-sig").splitlines():
+            linea = linea.strip()
+            if linea and not linea.startswith("#") and "=" in linea:
+                k, v = linea.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
-# Inicializar capa de ingesta, simulador y asesor de IA en memoria
-ingestion = DataIngestionLayer(data_path="data/nfl_sample.csv")
-try:
-    df_plays = ingestion.load_and_normalize()
-except Exception:
-    df_plays = None
 
-simulator = CounterfactualSimulator()
-ai_advisor = TacticalAIAdvisor()
+cargar_env()
 
-# Modelos Pydantic de solicitud
-class OffensiveSimRequest(BaseModel):
-    play_id: int
-    sim_play_type: str = Field(..., example="pass")
-    sim_target_gap: str = Field(..., example="checkdown")
-    aggressiveness: Optional[float] = 1.0
+import logging  # noqa: E402
+import sys  # noqa: E402
+from typing import Literal, Optional  # noqa: E402
 
-class DefensiveSimRequest(BaseModel):
-    play_id: int
-    sim_coverage: str = Field(..., example="cover_4")
-    sim_blitz_count: int = Field(..., example=3)
+from fastapi import FastAPI, HTTPException, Query  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
-# Contrato obligatorio del Hackathon
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from services import ai_advisor  # noqa: E402
+from services.analytics import PressureAnalytics, records  # noqa: E402
+
+logging.basicConfig(level=logging.INFO)
+
+app = FastAPI(title="NFL Pressure Lab API", version="2.0.0",
+              description="Presión: quién la genera, quién la permite y cuánto cuesta (NFL Big Data Bowl 2023, semanas 1-8)")
+
+engine = PressureAnalytics()
+
+
+class SimRequest(BaseModel):
+    gameId: int
+    playId: int
+    rushers: Optional[int] = Field(default=None, ge=3, le=7)
+    pressure: Literal["auto", "yes", "no"] = "auto"
+    release: Literal["auto", "rapido", "normal", "largo"] = "auto"
+
+
+class ExplainRequest(SimRequest):
+    perspective: Literal["offense", "defense"] = "offense"
+
+
 @app.get("/health")
-def health_check():
+def health():
     return {"status": "ok"}
 
+
+@app.get("/api/summary")
+def summary():
+    return engine.summary
+
+
+@app.get("/api/rushers")
+def rushers(min_snaps: int = Query(100, ge=1), limit: int = Query(25, ge=1, le=500)):
+    d = engine.rushers[engine.rushers.snaps >= min_snaps].head(limit)
+    return {"prior": engine.rush_prior, "players": records(d)}
+
+
+@app.get("/api/blockers")
+def blockers(min_snaps: int = Query(100, ge=1), limit: int = Query(15, ge=1, le=500)):
+    d = engine.blockers[engine.blockers.snaps >= min_snaps]
+    return {"prior": engine.block_prior, "best": records(d.head(limit)),
+            "worst": records(d.tail(limit).iloc[::-1]), "by_position": engine.blockers_by_pos}
+
+
+@app.get("/api/qbs")
+def qbs(min_dropbacks: int = Query(100, ge=1)):
+    return records(engine.qbs[engine.qbs.dropbacks >= min_dropbacks])
+
+
+@app.get("/api/teams")
+def teams():
+    return records(engine.teams)
+
+
 @app.get("/api/plays")
-def list_plays():
-    if df_plays is None:
-        raise HTTPException(status_code=500, detail="Dataset no cargado")
-    return df_plays.to_dict(orient="records")
+def plays(team: Optional[str] = None, week: Optional[int] = None, pressure: Optional[str] = None,
+          down: Optional[int] = None, q: Optional[str] = None, limit: int = Query(60, ge=1, le=300)):
+    return engine.list_plays(team, week, pressure, down, q, limit)
 
-@app.post("/api/simulate/offensive")
-def simulate_offensive(req: OffensiveSimRequest):
-    if df_plays is None:
-        raise HTTPException(status_code=500, detail="Dataset no cargado")
-    
-    match = df_plays[df_plays["play_id"] == req.play_id]
-    if match.empty:
-        raise HTTPException(status_code=404, detail=f"Jugada {req.play_id} no encontrada")
-    
-    play_row = match.iloc[0]
-    result = simulator.simulate_offensive_scenario(
-        play_row, req.sim_play_type, req.sim_target_gap, req.aggressiveness or 1.0
-    )
-    
-    # Enriquecer respuesta con diagnóstico de IA (Bedrock / Fallback)
-    result["ai_summary"] = ai_advisor.generate_tactical_summary(play_row.to_dict(), result)
-    return result
 
-@app.post("/api/simulate/defensive")
-def simulate_defensive(req: DefensiveSimRequest):
-    if df_plays is None:
-        raise HTTPException(status_code=500, detail="Dataset no cargado")
-    
-    match = df_plays[df_plays["play_id"] == req.play_id]
-    if match.empty:
-        raise HTTPException(status_code=404, detail=f"Jugada {req.play_id} no encontrada")
-    
-    play_row = match.iloc[0]
-    result = simulator.simulate_defensive_scenario(
-        play_row, req.sim_coverage, req.sim_blitz_count
-    )
-    
-    # Enriquecer respuesta con diagnóstico de IA (Bedrock / Fallback)
-    result["ai_summary"] = ai_advisor.generate_tactical_summary(play_row.to_dict(), result)
-    return result
+@app.get("/api/play-frames")
+def play_frames(gameId: int, playId: int):
+    try:
+        return engine.frames(gameId, playId)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
-@app.get("/api/game-summary")
-def get_game_summary():
-    if df_plays is None:
-        raise HTTPException(status_code=500, detail="Dataset no cargado")
-    
-    key_moments = df_plays[(df_plays["down"] >= 3) | (df_plays["actual_epa"].abs() >= 1.0)]
-    return {
-        "total_plays_analyzed": len(df_plays),
-        "key_counterfactual_moments_count": len(key_moments),
-        "key_moments": key_moments.to_dict(orient="records")
-    }
+
+@app.post("/api/simulate")
+def simulate(req: SimRequest):
+    try:
+        return engine.simulate(req.gameId, req.playId, req.rushers, req.pressure, req.release)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/api/explain")
+def explain(req: ExplainRequest):
+    try:
+        sim = engine.simulate(req.gameId, req.playId, req.rushers, req.pressure, req.release)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return ai_advisor.explain(sim, req.perspective)
+
+
+# Build del dashboard en la misma URL (montado al final para no tapar /api ni /health)
+_dist = BASE_DIR.parent / "dashboard" / "dist"
+if _dist.exists():
+    app.mount("/", StaticFiles(directory=_dist, html=True), name="dashboard")

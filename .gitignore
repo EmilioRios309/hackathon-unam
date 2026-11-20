@@ -1,3 +1,15 @@
 ﻿node_modules/
 .venv/
 __pycache__/
+
+# Credenciales
+.env
+
+# Datos del Big Data Bowl (no se redistribuyen; van en data/ localmente)
+data/*.csv
+data/tracking/
+
+# Generados
+dashboard/dist/
+.hackathon/.bootstrap/
+setup-log.txt
