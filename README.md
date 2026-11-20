@@ -5,3 +5,7 @@ NFL Pressure Lab es un dashboard que analiza la presión sobre el quarterback co
 ![Simulador de presión: campo 2D de un pase de Tom Brady contra Dallas, con las trayectorias del pass rush, los duelos de bloqueo y la distancia del rusher más cercano al QB](docs/img/campo-2d.png)
 
 *Simulador de presión, TB contra DAL, 3.º y 2. Los círculos rojos marcan a los rushers que generaron presión. La gráfica inferior muestra cómo se cierra la distancia entre el rusher más cercano y el QB hasta el lanzamiento, a los 3.2 s.*
+
+![Modo "¿Y si lanzaba a los…?": la misma jugada congelada a los 2.0 s, con el lanzamiento simulado marcado en verde y el asistente de datos abajo a la derecha](docs/img/campo-2d_conIA.png)
+
+*La misma jugada en modo "¿Y si lanzaba a los…?". Si Brady lanzaba a los 2.0 s, el rusher más cercano (Demarcus Lawrence) estaba a 4.2 yd, fuera de la zona de presión, contra 2.3 yd en el lanzamiento real. El simulador recalcula el resultado para ese tramo, y el botón "Pregúntale a los datos" abre el asistente con preguntas rápidas e IA.*
