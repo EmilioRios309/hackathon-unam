@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { getJSON, num } from '../api';
-import { FramePlayer, PlayFrames } from '../types';
+import { FramePlayer, PlayFrames, ReleaseMode } from '../types';
 import { COLORS, tooltipStyle } from './ui';
 
 // Vista "desde la zona de anotación": la ofensiva avanza hacia arriba.
@@ -26,9 +26,14 @@ interface Props {
   playId: number;
   highlight: number | null; // nflId
   onHighlight: (nflId: number | null) => void;
+  onWhatIf?: (release: ReleaseMode) => void; // conecta el lanzamiento simulado con el simulador
 }
 
-export const Field2DView: React.FC<Props> = ({ gameId, playId, highlight, onHighlight }) => {
+const WHAT_IF_TIMES = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
+const releaseOf = (t: number): ReleaseMode => (t < 2.5 ? 'rapido' : t < 3.5 ? 'normal' : 'largo');
+const distAt = (qd: PlayFrames['qb_dist'], t: number) => [...qd].reverse().find((q) => q.t <= t + 1e-9);
+
+export const Field2DView: React.FC<Props> = ({ gameId, playId, highlight, onHighlight, onWhatIf }) => {
   const [data, setData] = useState<PlayFrames | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [k, setK] = useState(0);
@@ -38,12 +43,14 @@ export const Field2DView: React.FC<Props> = ({ gameId, playId, highlight, onHigh
   const [duels, setDuels] = useState(false);
   const [numbers, setNumbers] = useState(true);
   const [hover, setHover] = useState<number | null>(null);
+  const [whatIf, setWhatIf] = useState<number | null>(null); // segundo del lanzamiento simulado
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
     setData(null);
     setError(null);
     setPlaying(false);
+    setWhatIf(null);
     getJSON<PlayFrames>(`api/play-frames?gameId=${gameId}&playId=${playId}`)
       .then((d) => {
         setData(d);
@@ -102,11 +109,27 @@ export const Field2DView: React.FC<Props> = ({ gameId, playId, highlight, onHigh
   for (let x = Math.ceil(geo.xMin / 5) * 5; x <= geo.xMax; x += 5) if (x >= 10 && x <= 110) lines.push(x);
 
   const protagonists = new Set(data.players.filter((p) => p.hit || p.hurry || p.sack || p.beaten).map((p) => p.i));
+  const frameAt = (tt: number) => {
+    const i = data.frames.findIndex((f) => f.t >= tt);
+    return i < 0 ? data.frames.length - 1 : i;
+  };
   const jump = (tt: number) => {
     setPlaying(false);
-    const i = data.frames.findIndex((f) => f.t >= tt);
-    setK(i < 0 ? data.frames.length - 1 : i);
+    setK(frameAt(tt));
   };
+
+  // "¿Y si lanzaba a los X s?": posición real del QB en ese momento y distancia del rusher más cercano
+  const options = WHAT_IF_TIMES.filter((x) => x < data.end_t - 0.15);
+  const chooseWhatIf = (tt: number | null) => {
+    setWhatIf(tt);
+    onWhatIf?.(tt === null ? 'auto' : releaseOf(tt));
+    jump(tt ?? data.end_t);
+  };
+  const wiFrame = whatIf !== null ? data.frames[frameAt(whatIf)] : null;
+  const wiQb = wiFrame && data.qb !== null ? wiFrame.p[data.qb] : null;
+  const wiDist = whatIf !== null ? distAt(data.qb_dist, whatIf) : undefined;
+  const realDist = distAt(data.qb_dist, data.end_t);
+  const showGhost = wiQb && t >= (whatIf ?? 0);
 
   return (
     <div className="space-y-3">
@@ -260,6 +283,26 @@ export const Field2DView: React.FC<Props> = ({ gameId, playId, highlight, onHigh
             );
           })}
 
+          {/* Lanzamiento simulado */}
+          {showGhost && (
+            <g pointerEvents="none">
+              <circle cx={sx(wiQb![1])} cy={sy(wiQb![0])} r={16} fill="#22c55e" fillOpacity={0.12} stroke="#22c55e" strokeWidth={2.5} strokeDasharray="6 4" />
+              <text
+                x={sx(wiQb![1])}
+                y={sy(wiQb![0]) + 32}
+                textAnchor="middle"
+                fontSize={12}
+                fontWeight={800}
+                fill="#4ade80"
+                stroke="#0b2417"
+                strokeWidth={3}
+                paintOrder="stroke"
+              >
+                Lanza a los {num(whatIf, 1)} s
+              </text>
+            </g>
+          )}
+
           {/* Balón */}
           {frame.ball && <ellipse cx={sx(frame.ball[1])} cy={sy(frame.ball[0])} rx={3.5} ry={5} fill="#b45309" stroke="#fde68a" strokeWidth={1} />}
 
@@ -327,6 +370,44 @@ export const Field2DView: React.FC<Props> = ({ gameId, playId, highlight, onHigh
         className="w-full accent-blue-500"
       />
 
+      {/* ¿Y si lanzaba antes? */}
+      {options.length > 0 && (
+        <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/20 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-emerald-300 mr-1">¿Y si lanzaba a los…?</span>
+            <button
+              onClick={() => chooseWhatIf(null)}
+              className={`h-7 px-2.5 rounded-lg text-xs font-bold border ${whatIf === null ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-[#1a2647] text-gray-300 hover:bg-[#152042]'}`}
+            >
+              Real ({num(data.end_t, 1)} s)
+            </button>
+            {options.map((o) => (
+              <button
+                key={o}
+                onClick={() => chooseWhatIf(o)}
+                className={`h-7 px-2.5 rounded-lg text-xs font-bold border ${whatIf === o ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-[#1a2647] text-gray-300 hover:bg-[#152042]'}`}
+              >
+                {num(o, 1)} s
+              </button>
+            ))}
+          </div>
+          {whatIf !== null && wiDist && (
+            <p className="text-xs text-gray-300 mt-2">
+              A los <b>{num(whatIf, 1)} s</b> el rusher más cercano ({data.players[wiDist.who]?.name}) estaba a{' '}
+              <b style={{ color: threatColor(wiDist.d) }}>{num(wiDist.d, 1)} yd</b>
+              {wiDist.d >= data.close_yd ? ', fuera de la zona de presión' : ', ya dentro de la zona de presión'}
+              {realDist && (
+                <>
+                  , contra <b style={{ color: threatColor(realDist.d) }}>{num(realDist.d, 1)} yd</b> en el {data.end_label.toLowerCase()} real
+                </>
+              )}
+              . Las tablas de abajo usan el tramo de lanzamiento {releaseOf(whatIf) === 'rapido' ? '< 2.5 s' : releaseOf(whatIf) === 'normal' ? '2.5-3.5 s' : '> 3.5 s'}.
+            </p>
+          )}
+          {whatIf === null && <p className="text-[11px] text-gray-500 mt-1.5">Elige un momento: el campo se congela ahí y el simulador recalcula el resultado.</p>}
+        </div>
+      )}
+
       {/* Distancia al QB en el tiempo */}
       {data.qb_dist.length > 1 && (
         <div>
@@ -341,6 +422,7 @@ export const Field2DView: React.FC<Props> = ({ gameId, playId, highlight, onHigh
               <ReferenceArea y1={0} y2={data.close_yd} fill="#ef4444" fillOpacity={0.15} />
               <Area type="monotone" dataKey="d" stroke="#f97316" fill="#f97316" fillOpacity={0.15} isAnimationActive={false} />
               {t >= 0 && <ReferenceLine x={Math.min(t, data.end_t)} stroke="#e5e7eb" />}
+              {whatIf !== null && <ReferenceLine x={whatIf} stroke="#22c55e" strokeDasharray="4 3" label={{ value: 'simulado', fill: '#4ade80', fontSize: 10, position: 'insideTopLeft' }} />}
               <Tooltip {...tooltipStyle} formatter={(v: unknown) => `${num(Number(v), 1)} yd`} labelFormatter={(l: unknown) => `${l} s`} />
             </AreaChart>
           </ResponsiveContainer>

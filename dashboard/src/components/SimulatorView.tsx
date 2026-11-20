@@ -142,7 +142,7 @@ const Seg: React.FC<{ label: string; options: [string, string][]; value: string;
   </div>
 );
 
-export const SimulatorView: React.FC = () => {
+export const SimulatorView: React.FC<{ onPlayChange?: (p: { gameId: number; playId: number } | null) => void }> = ({ onPlayChange }) => {
   const [teams, setTeams] = useState<string[]>([]);
   const [filters, setFilters] = useState({ team: '', week: '', pressure: '', down: '', q: '' });
   const [list, setList] = useState<{ total: number; plays: PlayRow[] } | null>(null);
@@ -179,6 +179,9 @@ export const SimulatorView: React.FC = () => {
   useEffect(() => {
     if (req) run(req);
   }, [req, run]);
+  useEffect(() => {
+    onPlayChange?.(req ? { gameId: req.gameId, playId: req.playId } : null);
+  }, [req?.gameId, req?.playId, onPlayChange]);
 
   if (error) return <ErrorBox error={error} />;
 
@@ -281,7 +284,13 @@ export const SimulatorView: React.FC = () => {
             <div className="grid grid-cols-1 2xl:grid-cols-12 gap-6 items-start">
               <Card title="La jugada real" subtitle="Vista desde atrás de la ofensiva. Pasa el cursor o haz clic en un jugador para seguirlo." className="2xl:col-span-8">
                 {sim.has_tracking ? (
-                  <Field2DView gameId={req.gameId} playId={req.playId} highlight={highlight} onHighlight={setHighlight} />
+                  <Field2DView
+                    gameId={req.gameId}
+                    playId={req.playId}
+                    highlight={highlight}
+                    onHighlight={setHighlight}
+                    onWhatIf={(release) => setReq((cur) => (cur ? { ...cur, release } : cur))}
+                  />
                 ) : (
                   <p className="text-xs text-gray-500">No hay datos de tracking disponibles.</p>
                 )}

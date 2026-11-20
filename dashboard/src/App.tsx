@@ -7,6 +7,7 @@ import { QBView } from './components/QBView';
 import { SimulatorView } from './components/SimulatorView';
 import { MethodologyView } from './components/MethodologyView';
 import { ErrorBox, Loading } from './components/ui';
+import { AssistantPanel } from './components/AssistantPanel';
 
 type Tab = 'summary' | 'simulator' | 'trenches' | 'qbs' | 'method';
 
@@ -22,6 +23,7 @@ export const App: React.FC = () => {
   const [tab, setTab] = useState<Tab>('summary');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ctxPlay, setCtxPlay] = useState<{ gameId: number; playId: number } | null>(null);
 
   useEffect(() => {
     getJSON<Summary>('api/summary')
@@ -66,10 +68,11 @@ export const App: React.FC = () => {
       {error && <ErrorBox error={error} />}
       {!error && !summary && <Loading text="Calculando métricas…" />}
       {summary && tab === 'summary' && <SummaryView s={summary} />}
-      {tab === 'simulator' && <SimulatorView />}
+      {tab === 'simulator' && <SimulatorView onPlayChange={setCtxPlay} />}
       {tab === 'trenches' && <TrenchesView />}
       {summary && tab === 'qbs' && <QBView s={summary} />}
       {summary && tab === 'method' && <MethodologyView s={summary} />}
+      <AssistantPanel play={ctxPlay} />
     </div>
   );
 };

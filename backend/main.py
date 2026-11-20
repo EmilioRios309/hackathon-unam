@@ -28,6 +28,7 @@ if str(BASE_DIR) not in sys.path:
 
 from services import ai_advisor  # noqa: E402
 from services.analytics import PressureAnalytics, records  # noqa: E402
+from services.assistant import SUGGESTIONS, Assistant  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 
@@ -35,6 +36,7 @@ app = FastAPI(title="NFL Pressure Lab API", version="2.0.0",
               description="Presión: quién la genera, quién la permite y cuánto cuesta (NFL Big Data Bowl 2023, semanas 1-8)")
 
 engine = PressureAnalytics()
+assistant = Assistant(engine)
 
 
 class SimRequest(BaseModel):
@@ -111,6 +113,31 @@ def explain(req: ExplainRequest):
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return ai_advisor.explain(sim, req.perspective)
+
+
+class AssistantRequest(BaseModel):
+    question: Optional[str] = Field(default=None, max_length=500)
+    intent: Optional[str] = Field(default=None, max_length=30)
+    gameId: Optional[int] = None
+    playId: Optional[int] = None
+
+
+@app.get("/api/assistant/suggestions")
+def assistant_suggestions():
+    return SUGGESTIONS
+
+
+@app.post("/api/assistant")
+def ask_assistant(req: AssistantRequest):
+    if req.intent:
+        try:
+            return {"available": True, "source": "datos", "text": assistant.quick(req.intent, req.gameId, req.playId)}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+    if not req.question or not req.question.strip():
+        raise HTTPException(status_code=422, detail="escribe una pregunta")
+    out = assistant.ask(req.question.strip(), req.gameId, req.playId)
+    return {**out, "source": "ia"}
 
 
 # Build del dashboard en la misma URL (montado al final para no tapar /api ni /health)

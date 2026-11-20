@@ -147,7 +147,11 @@ export const QBView: React.FC<{ s: Summary }> = ({ s }) => {
             <Kpi
               label="Costo de la presión"
               value={`${num(q.pressure_cost, 1)} yd`}
-              hint={`por intento · IC95 [${num(q.cost_ci_low, 1)}, ${num(q.cost_ci_high, 1)}]`}
+              hint={
+                (q.cost_ci_high ?? 0) > 0
+                  ? `No concluyente: IC95 [${num(q.cost_ci_low, 1)}, ${num(q.cost_ci_high, 1)}] incluye 0 (${q.attempts_pressure} intentos con presión)`
+                  : `por intento · IC95 [${num(q.cost_ci_low, 1)}, ${num(q.cost_ci_high, 1)}]`
+              }
               tone={(q.pressure_cost ?? -2) > -2 ? 'good' : 'bad'}
             />
             <Kpi label="Sack por presión" value={pct(q.sack_per_pressure)} hint={`sack en ${pct(q.sack_rate)} de dropbacks`} />
